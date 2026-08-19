@@ -1,124 +1,137 @@
-# Talkey — Windows için konuşmayı yazıya çeviren kısayol
+# Talkey
 
-Bir tuşa bas, konuş, aynı tuşa tekrar bas. Söylediklerin panoya metin olarak
-girer, `Ctrl+V` ile istediğin yere yapıştırırsın.
+Push a key, talk, push it again. What you said lands on your clipboard as text,
+ready to paste anywhere with `Ctrl+V`.
 
-- **F8** — Türkçe
-- **F9** — İngilizce
+- **F8** — Turkish
+- **F9** — English
 
-Her şey kendi bilgisayarında çalışır. Ses hiçbir yere gönderilmez, internet
-yalnızca ilk kurulumda model indirilirken gerekir.
+Everything runs on your own machine. Your audio never leaves it, and you only
+need the internet once, while the model downloads.
 
-## Kurulum
+## Install
 
-1. Zip'i bir klasöre çıkart.
-2. O klasörde adres çubuğuna `powershell` yazıp Enter'a bas, sonra:
+1. Extract the zip.
+2. Open a PowerShell window in that folder (click the address bar, type
+   `powershell`, press Enter) and run:
    ```
    powershell -ExecutionPolicy Bypass -File install.ps1
    ```
-   İnternetten indirilen `.ps1` dosyaları Windows tarafından işaretlenir ve
-   sağ tık → "Run with PowerShell" varsayılan ayarlarda reddedilir; yukarıdaki
-   komut bunu aşar. (Alternatif: zip'e sağ tık → Özellikler → **Engellemeyi
-   kaldır** işaretle, sonra çıkart ve sağ tık → Run with PowerShell.)
-3. Kurucu sırayla mikrofonu ve model boyutunu sorar. İkisinde de Enter'a basıp
-   varsayılanı seçebilirsin.
+   Windows marks `.ps1` files downloaded from the internet, so right-click →
+   "Run with PowerShell" is refused under the default policy. The command above
+   gets past that. (Alternative: right-click the zip → Properties → tick
+   **Unblock**, then extract and use "Run with PowerShell".)
+3. The installer asks for a microphone and a model size. Pressing Enter twice
+   takes the defaults.
 
-Kurucu, eksikse Python 3 ve AutoHotkey v2'yi `winget` ile kurar, dosyaları
-`%LOCALAPPDATA%\Talkey` altına kopyalar, izole bir Python ortamı hazırlar ve
-sistemi Windows açılışına ekler. Yönetici hakkı gerekmez.
+It installs Python 3 and AutoHotkey v2 through `winget` if they are missing,
+copies everything into `%LOCALAPPDATA%\Talkey`, builds an isolated Python
+environment, and registers Talkey to start with Windows. No administrator
+rights needed.
 
-İlk kurulumda model indirilir (medium için ~1.5 GB), bu birkaç dakika sürer.
-Sonraki açılışlarda indirme yok.
+The first install downloads the speech model (~1.5 GB for `medium`), which
+takes a few minutes. Later launches download nothing.
 
-## Kullanım
+## Using it
 
-| Ne | Nasıl |
+| What | How |
 |---|---|
-| Türkçe talkey | `F8` → konuş → `F8` |
-| İngilizce talkey | `F9` → konuş → `F9` |
-| Metni yapıştır | `Ctrl+V` |
-| Son metni tekrar kopyala | Tepsi ikonu → "Son metni kopyala" |
-| Kapat | Tepsi ikonu → "Çıkış" |
+| Dictate in Turkish | `F8` → speak → `F8` |
+| Dictate in English | `F9` → speak → `F9` |
+| Paste the text | `Ctrl+V` |
+| Copy the last text again | Tray icon → "Copy last text" |
+| Quit | Tray icon → "Exit" |
 
-Ekranın köşesinde küçük bir baloncuk durumu gösterir: `dinliyorum` → `yazıya
-çevriliyor…` → `Panoda`.
+A small bubble in the corner tracks the state: `listening` → `transcribing...`
+→ `Copied`.
 
-Metin **yalnızca panoya** yazılır, hiçbir pencereye kendiliğinden yazılmaz.
-Yanlış pencereye yazma riski yok.
+Text goes **only to the clipboard**. Nothing is typed into a window on your
+behalf, so there is no risk of it landing in the wrong place.
 
-## Ayarlar
+## Settings
 
 `%LOCALAPPDATA%\Talkey\config.ini`
 
-| Anahtar | Ne işe yarar |
+| Key | What it does |
 |---|---|
-| `[audio] device` | Mikrofon. Boş = Windows varsayılanı. Cihaz adının bir parçası yeterli. |
-| `[audio] max_seconds` | Durdurmayı unutursan kayıt bu süre sonunda kendi biter. |
-| `[whisper] model` | `small`, `medium`, `large-v3`. Büyüdükçe daha doğru, daha yavaş. |
-| `[whisper] compute` | `auto`, `cpu`, `cuda:float16`. Kurucu bunu senin makinene göre ayarlar. |
-| `[lang] primary` / `secondary` | İki tuşun dilleri (`tr`, `en`, `de`, `fr`, …). |
-| `[hotkeys] primary` / `secondary` | Kısayol tuşları. `F8`, `F9`, `^!d` (Ctrl+Alt+D) gibi. |
-| `[daemon] idle_unload` | Model bu kadar saniye kullanılmazsa RAM'den düşer. |
+| `[audio] device` | Microphone. Empty = the Windows default. Part of the device name is enough. |
+| `[audio] max_seconds` | If you forget to stop, recording ends by itself after this long. |
+| `[whisper] model` | `small`, `medium`, `large-v3`. Bigger is more accurate and slower. |
+| `[whisper] compute` | `auto`, `cpu`, `cuda:float16`. The installer sets this for your machine. |
+| `[lang] primary` / `secondary` | The two keys' languages (`tr`, `en`, `de`, `fr`, …). Whisper is multilingual, so any of its 99 languages works. |
+| `[hotkeys] primary` / `secondary` | The hotkeys. `F8`, `F9`, `^!d` (Ctrl+Alt+D), and so on. |
+| `[daemon] idle_unload` | The model is dropped from RAM after this many idle seconds. |
 
-Değişiklikten sonra:
+After editing:
 
-- `[whisper]` veya `[daemon]` değiştiyse → tepsi ikonu → **Daemon'ı yeniden başlat**
-- `[hotkeys]`, `[lang]` veya `[audio]` değiştiyse → tepsi ikonu → **Çıkış**, sonra
-  Başlat menüsünden `Talkey` kısayolunu tekrar çalıştır (veya bilgisayarı yeniden başlat)
+- changed `[whisper]` or `[daemon]` → tray icon → **Restart daemon**
+- changed `[hotkeys]`, `[lang]` or `[audio]` → tray icon → **Exit**, then start
+  `Talkey` again from the Start menu (or reboot)
 
-## Nasıl çalışıyor
+## How it works
 
 ```
-F8  ──▶ dictate.ahk ──▶ dictate-record.py   (mikrofon → 16 kHz mono WAV)
+F8  ──▶ dictate.ahk ──▶ dictate-record.py   (microphone → 16 kHz mono WAV)
                              │
-F8  ──▶ dictate.ahk ─────────┘ dur
+F8  ──▶ dictate.ahk ─────────┘ stop
          │
          └─▶ dictate-client.py ──TCP 127.0.0.1──▶ dictate-daemon.py
-                                                    (faster-whisper, model RAM'de)
-         ◀────────────── metin ──────────────────────┘
+                                                    (faster-whisper, model in RAM)
+         ◀────────────── text ──────────────────────┘
          │
-         └─▶ pano
+         └─▶ clipboard
 ```
 
-Model arka planda bir "daemon" içinde açık durur; her talkey için baştan
-yüklenmez, bu yüzden çeviri birkaç saniyede biter. Uzun süre kullanılmazsa
-kendini RAM'den düşürür, sonraki kullanımda geri yükler.
+The model stays loaded in a background daemon instead of being read from disk
+for every dictation, which is why transcription takes seconds rather than half
+a minute. After a long idle stretch it unloads itself and reloads on the next
+use.
 
-Kayıt, işlemi öldürerek değil bir "dur" dosyası bırakılarak sonlandırılır —
-böylece WAV başlığı her zaman düzgün kapanır ve bozuk/yarım kayıt oluşmaz.
+Recording stops by dropping a sentinel file rather than killing the recorder,
+so the WAV header is always closed properly and you never get a truncated
+recording.
 
-## Sorun giderme
+Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper) with
+OpenAI's Whisper models, [sounddevice](https://python-sounddevice.readthedocs.io)
+for capture, and [AutoHotkey v2](https://www.autohotkey.com) for the hotkeys.
 
-**Hiçbir şey olmuyor, tepsi ikonu da yok**
-Başlat menüsünde `shell:startup` yazıp Enter'a bas, `Talkey.lnk` orada mı bak.
-Yoksa `install.ps1` dosyasını tekrar çalıştır.
+## Troubleshooting
 
-**"Mikrofon açılamadı"**
-`%LOCALAPPDATA%\Talkey\record.log` dosyasına bak. Genelde Windows'un mikrofon
-gizlilik izni kapalıdır: Ayarlar → Gizlilik ve güvenlik → Mikrofon → "Masaüstü
-uygulamalarının mikrofona erişmesine izin ver" açık olmalı.
+**Nothing happens and there is no tray icon**
+Press Win+R, type `shell:startup`, press Enter, and check that `Talkey.lnk` is
+there. If it is not, run `install.ps1` again.
 
-**Yanlış mikrofon dinleniyor**
-`config.ini` içinde `[audio] device` satırına cihaz adının bir parçasını yaz.
-Cihaz listesini görmek için:
+**"Microphone would not open"**
+Check `%LOCALAPPDATA%\Talkey\record.log`. Usually it is the Windows privacy
+setting: Settings → Privacy & security → Microphone → "Let desktop apps access
+your microphone" must be on.
+
+**It is listening to the wrong microphone**
+Put part of the device name in `[audio] device` in `config.ini`. To see the
+list of devices:
 ```
 %LOCALAPPDATA%\Talkey\venv\Scripts\python.exe %LOCALAPPDATA%\Talkey\dictate-record.py --list
 ```
 
-**"Daemon başlatılamadı"**
-`%LOCALAPPDATA%\Talkey\daemon.log` dosyasına bak. `cudnn` / `cublas` hatası
-görürsen `config.ini` içinde `compute = cpu` yap ve daemon'ı yeniden başlat.
+**"Could not start the daemon"**
+Check `%LOCALAPPDATA%\Talkey\daemon.log`. If you see a `cudnn` or `cublas`
+error, set `compute = cpu` in `config.ini` and restart the daemon.
 
-**Çeviri çok yavaş**
-`config.ini` içinde `model = small` yap, daemon'ı yeniden başlat. Ayrıca ilk
-talkey, model yüklenirken her zaman yavaştır; sonrakiler hızlıdır.
+**Transcription is slow**
+Set `model = small` in `config.ini` and restart the daemon. Note that the first
+dictation after a restart is always slow while the model loads; the rest are
+fast.
 
-**F8 başka bir programda çalışıyor**
-`config.ini` içinde `[hotkeys] primary` değerini değiştir, örneğin `^!d`
-(Ctrl+Alt+D). `^` = Ctrl, `!` = Alt, `+` = Shift, `#` = Win.
+**F8 is taken by another program**
+Change `[hotkeys] primary` in `config.ini`, for example to `^!d` (Ctrl+Alt+D).
+`^` is Ctrl, `!` is Alt, `+` is Shift, `#` is Win.
 
-## Kaldırma
+## Uninstall
 
-`%LOCALAPPDATA%\Talkey\uninstall.ps1` → sağ tık → Run with PowerShell.
-İndirilen modelleri ve kurulum klasörünü silmeyi ayrı ayrı sorar; Python ile
-AutoHotkey'e dokunmaz.
+Run `%LOCALAPPDATA%\Talkey\uninstall.ps1`. It asks separately before deleting
+the install folder and the downloaded models, and leaves Python and AutoHotkey
+alone.
+
+## License
+
+MIT

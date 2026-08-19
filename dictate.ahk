@@ -12,7 +12,7 @@ global CFG := A_ScriptDir "\config.ini"
 
 ; The venv always lives beside this script, so the path is derived rather than
 ; configured: IniRead decodes as ANSI, which would mangle a UTF-8 config value
-; on an account like C:\Users\Ayşe Öz\... and break the lookup. Everything read
+; on an account like C:\Users\Ayse Oz\... and break the lookup. Everything read
 ; from config.ini below is plain ASCII.
 global PYW := A_ScriptDir "\venv\Scripts\pythonw.exe"
 global MODEL := IniRead(CFG, "whisper", "model", "medium")
@@ -56,7 +56,7 @@ StartRec(lang) {
     try {
         Run(cmd, A_ScriptDir, "Hide", &pid)
     } catch as err {
-        Notify("Kayıt başlatılamadı: " err.Message, 6000)
+        Notify("Could not start recording: " err.Message, 6000)
         return
     }
     recPid := pid
@@ -66,28 +66,28 @@ StartRec(lang) {
     deadline := A_TickCount + 6000
     while (!FileExist(READYF) && A_TickCount < deadline) {
         if !ProcessExist(recPid) {
-            Notify("Mikrofon açılamadı. Bkz. " A_ScriptDir "\record.log", 8000)
+            Notify("Microphone would not open. See " A_ScriptDir "\record.log", 8000)
             recPid := 0
             return
         }
         Sleep(50)
     }
     if !FileExist(READYF) {
-        Notify("Mikrofon zaman aşımı. Bkz. " A_ScriptDir "\record.log", 8000)
+        Notify("Microphone timed out. See " A_ScriptDir "\record.log", 8000)
         try ProcessClose(recPid)
         recPid := 0
         return
     }
     recording := true
-    A_IconTip := "Talkey - kayıtta [" lang "]"
-    Notify("🎤 dinliyorum [" lang "]… (aynı tuş = durdur)", 3000)
+    A_IconTip := "Talkey - recording [" lang "]"
+    Notify("🎤 listening [" lang "]... (same key to stop)", 3000)
 }
 
 StopAndTranscribe() {
     global recording, busy, recPid, recLang, lastText
     recording := false
     busy := true
-    A_IconTip := "Talkey - çevriliyor"
+    A_IconTip := "Talkey - transcribing"
     FileAppend("stop", STOPF)   ; sentinel: the recorder closes the WAV cleanly
     if recPid
         ProcessWaitClose(recPid, 10)
@@ -95,22 +95,22 @@ StopAndTranscribe() {
 
     ; 44 bytes of header plus ~100 ms of 16 kHz mono s16 audio.
     if (!FileExist(WAV) || FileGetSize(WAV) < 3300) {
-        Notify("boş kayıt", 2500)
+        Notify("empty recording", 2500)
         Done()
         return
     }
 
-    Notify("yazıya çevriliyor…", 120000)
+    Notify("transcribing...", 120000)
     cmd := '"' PYW '" "' A_ScriptDir '\dictate-client.py" ' recLang ' ' MODEL ' "' WAV '" "' OUTF '"'
     code := RunWait(cmd, A_ScriptDir, "Hide")
 
     if (code = 3) {
-        Notify("Daemon başlatılamadı. Bkz. " A_ScriptDir "\daemon.log", 8000)
+        Notify("Could not start the daemon. See " A_ScriptDir "\daemon.log", 8000)
         Done()
         return
     }
     if (code != 0) {
-        Notify("Çeviri hatası (kod " code "). Bkz. " A_ScriptDir "\client.log", 8000)
+        Notify("Transcription failed (exit " code "). See " A_ScriptDir "\client.log", 8000)
         Done()
         return
     }
@@ -118,27 +118,27 @@ StopAndTranscribe() {
     text := ""
     try text := Trim(FileRead(OUTF, "UTF-8"))
     if (text = "") {
-        Notify("anlaşılmadı / boş", 2500)
+        Notify("nothing recognised", 2500)
         Done()
         return
     }
     A_Clipboard := text
     ClipWait(1)
     lastText := text
-    Notify("📋 Panoda (Ctrl+V): " SubStr(text, 1, 70), 4000)
+    Notify("📋 Copied (Ctrl+V): " SubStr(text, 1, 70), 4000)
     Done()
 }
 
 Done() {
     global busy
     busy := false
-    A_IconTip := "Talkey - hazır (" K_PRI "=" L_PRI ", " K_SEC "=" L_SEC ")"
+    A_IconTip := "Talkey - ready (" K_PRI "=" L_PRI ", " K_SEC "=" L_SEC ")"
 }
 
 Toggle(lang) {
     global recording, busy
     if busy {
-        Notify("bir önceki kayıt hâlâ çevriliyor…", 2000)
+        Notify("still transcribing the previous recording...", 2000)
         return
     }
     if recording
@@ -150,16 +150,16 @@ Toggle(lang) {
 ; ---------- tray ----------
 CopyLast(*) {
     if (lastText = "") {
-        Notify("henüz metin yok", 2000)
+        Notify("nothing dictated yet", 2000)
         return
     }
     A_Clipboard := lastText
-    Notify("📋 son metin panoda", 2000)
+    Notify("📋 last text copied", 2000)
 }
 
 RestartDaemon(*) {
     RunWait('powershell -NoProfile -ExecutionPolicy Bypass -File "' A_ScriptDir '\restart-daemon.ps1"', A_ScriptDir, "Hide")
-    Notify("daemon yeniden başlatıldı (model yükleniyor)", 4000)
+    Notify("daemon restarted, loading the model", 4000)
 }
 
 OpenFolder(*) {
@@ -168,15 +168,15 @@ OpenFolder(*) {
 
 tray := A_TrayMenu
 tray.Delete()
-tray.Add("Son metni kopyala", CopyLast)
-tray.Add("Daemon'ı yeniden başlat", RestartDaemon)
-tray.Add("Kurulum klasörünü aç", OpenFolder)
+tray.Add("Copy last text", CopyLast)
+tray.Add("Restart daemon", RestartDaemon)
+tray.Add("Open install folder", OpenFolder)
 tray.Add()
-tray.Add("Çıkış", (*) => ExitApp())
+tray.Add("Exit", (*) => ExitApp())
 
 ; ---------- start ----------
 if !FileExist(PYW) {
-    MsgBox("Python bulunamadı:`n" PYW "`n`ninstall.ps1 dosyasını çalıştırın.", "Talkey", "Iconx")
+    MsgBox("Python not found:`n" PYW "`n`nRun install.ps1 first.", "Talkey", "Iconx")
     ExitApp()
 }
 
@@ -184,9 +184,9 @@ try {
     Hotkey(K_PRI, (*) => Toggle(L_PRI))
     Hotkey(K_SEC, (*) => Toggle(L_SEC))
 } catch as err {
-    MsgBox("Kısayol atanamadı (" K_PRI " / " K_SEC "):`n" err.Message, "Talkey", "Iconx")
+    MsgBox("Could not register the hotkeys (" K_PRI " / " K_SEC "):`n" err.Message, "Talkey", "Iconx")
     ExitApp()
 }
 
 Done()
-Notify("Talkey hazır: " K_PRI " = " L_PRI ", " K_SEC " = " L_SEC, 4000)
+Notify("Talkey ready: " K_PRI " = " L_PRI ", " K_SEC " = " L_SEC, 4000)

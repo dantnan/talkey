@@ -1,19 +1,18 @@
 ﻿#Requires -Version 5.1
 <#
-    Talkey - Windows kurucu.
+    Talkey installer.
 
-    Kullanım:  sağ tık -> "Run with PowerShell"
-    veya:      powershell -ExecutionPolicy Bypass -File install.ps1
+    Usage:  powershell -ExecutionPolicy Bypass -File install.ps1
 
-    Yaptıkları:
-      1. Python 3 ve AutoHotkey v2 yoksa winget ile kurar
-      2. %LOCALAPPDATA%\Talkey içine dosyaları kopyalar
-      3. İzole bir venv açıp faster-whisper + sounddevice kurar
-      4. Mikrofonu ve modeli sorar, config.ini yazar
-      5. Modeli indirir (ilk seferde ~1.5 GB)
-      6. Başlangıç klasörüne kısayolları koyar ve sistemi başlatır
+    What it does:
+      1. Installs Python 3 and AutoHotkey v2 through winget if they are missing
+      2. Copies the files into %LOCALAPPDATA%\Talkey
+      3. Creates an isolated venv with faster-whisper + sounddevice
+      4. Asks for your microphone and model size, writes config.ini
+      5. Downloads the whisper model (~1.5 GB the first time)
+      6. Adds startup shortcuts and launches everything
 
-    Yönetici hakkı gerekmez.
+    No administrator rights required.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -37,11 +36,11 @@ $Files = @(
 function Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
 function Info($msg) { Write-Host "    $msg" -ForegroundColor DarkGray }
 function Warn($msg) { Write-Host "    $msg" -ForegroundColor Yellow }
-function Die($msg) { Write-Host ""; Write-Host "HATA: $msg" -ForegroundColor Red; Read-Host "  Kapatmak icin Enter"; exit 1 }
+function Die($msg) { Write-Host ""; Write-Host "ERROR: $msg" -ForegroundColor Red; Read-Host "  Press Enter to close"; exit 1 }
 
-# pip ve winget normal calisirken bile stderr'e yazar; $ErrorActionPreference
-# 'Stop' iken bu, PowerShell 5.1'de kurulumu ortasindan keser. Harici komutlari
-# hep buradan cagirip basariyi $LASTEXITCODE ile olcuyoruz.
+# pip and winget write to stderr even on success, which aborts the script under
+# $ErrorActionPreference = 'Stop' on PowerShell 5.1. Route every external command
+# through here and judge success by $LASTEXITCODE instead.
 function Invoke-Native {
     $exe = $args[0]
     $rest = @()
@@ -51,8 +50,8 @@ function Invoke-Native {
     try {
         & $exe @rest
     } catch {
-        # Program yok ya da calistirilamadi. Bunu firlatirsak kurulum ortasindan
-        # kesilir; cagiran taraf zaten cikis kodunu kontrol ediyor.
+        # Missing or unrunnable program. Throwing here would kill the install, and
+        # every caller already checks the exit code.
         $global:LASTEXITCODE = 127
     } finally {
         $ErrorActionPreference = $old
@@ -67,8 +66,8 @@ function Refresh-EnvPath {
 
 function Test-PythonExe($exe) {
     if (-not $exe) { return $false }
-    # Microsoft Store'un "python.exe" kisayolu burada sifir disi kod dondurur,
-    # gercek yorumlayiciyi sahtesinden ayiran sey bu.
+    # The Microsoft Store "python.exe" stub exits non-zero here, which is what
+    # separates a real interpreter from the alias.
     $ver = Invoke-Native $exe '-c' "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $ver) { return $false }
     try { return ([version]("$ver".Trim()) -ge [version]'3.9') } catch { return $false }
@@ -84,7 +83,7 @@ function Get-PythonExe {
         $resolved = Get-Command $cmd -ErrorAction SilentlyContinue
         if ($resolved) { [void]$candidates.Add($resolved.Source) }
     }
-    # winget kurulumundan hemen sonra PATH henuz yenilenmemis olabiliyor.
+    # Right after a winget install the PATH in this session may still be stale.
     foreach ($root in @((Join-Path $env:LOCALAPPDATA 'Programs\Python'), $env:ProgramFiles)) {
         if ($root -and (Test-Path $root)) {
             Get-ChildItem $root -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
@@ -122,12 +121,12 @@ function Get-AhkExe {
 
 function Install-WithWinget($id, $label) {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Die "$label kurulu degil ve winget bulunamadi. Microsoft Store'dan 'App Installer' kurun, sonra bu betigi tekrar calistirin."
+        Die "$label is missing and winget was not found. Install 'App Installer' from the Microsoft Store, then run this script again."
     }
-    Info "$label kuruluyor (winget: $id)..."
+    Info "Installing $label (winget: $id)..."
     Invoke-Native 'winget' 'install' '-e' '--id' $id '--accept-package-agreements' '--accept-source-agreements' '--scope' 'user'
     if ($LASTEXITCODE -ne 0) {
-        Info "Kullanici kapsaminda kurulamadi, makine kapsami deneniyor..."
+        Info "User-scope install failed, trying machine scope..."
         Invoke-Native 'winget' 'install' '-e' '--id' $id '--accept-package-agreements' '--accept-source-agreements'
     }
     Refresh-EnvPath
@@ -142,61 +141,61 @@ function New-Shortcut($linkPath, $target, $arguments, $workDir) {
     $sc.Save()
 }
 
-# ---------------------------------------------------------------- 0. hazırlık
+# ------------------------------------------------------------------ 0. preflight
 Write-Host ""
-Write-Host "  Talkey - konusmayi yaziya ceviren kisayol (F8 / F9)" -ForegroundColor White
-Write-Host "  Kurulum klasoru: $Dest" -ForegroundColor DarkGray
+Write-Host "  Talkey - push-to-talk dictation (F8 / F9)" -ForegroundColor White
+Write-Host "  Install folder: $Dest" -ForegroundColor DarkGray
 
 Get-ChildItem $Src -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
 
 foreach ($f in $Files) {
-    if (-not (Test-Path (Join-Path $Src $f))) { Die "Pakette eksik dosya: $f" }
+    if (-not (Test-Path (Join-Path $Src $f))) { Die "Missing file in the package: $f" }
 }
 
-# ---------------------------------------------------------------- 1. bağımlılıklar
-Step "Python araniyor"
+# ------------------------------------------------------------------ 1. dependencies
+Step "Looking for Python"
 $python = Get-PythonExe
 if (-not $python) {
     Install-WithWinget 'Python.Python.3.12' 'Python 3.12'
     $python = Get-PythonExe
-    if (-not $python) { Die "Python kuruldu ama bulunamadi. Bilgisayari yeniden baslatip tekrar deneyin." }
+    if (-not $python) { Die "Python was installed but could not be found. Reboot and run this script again." }
 }
 Info "Python: $python"
 
-Step "AutoHotkey v2 araniyor"
+Step "Looking for AutoHotkey v2"
 $ahk = Get-AhkExe
 if (-not $ahk) {
     Install-WithWinget 'AutoHotkey.AutoHotkey' 'AutoHotkey v2'
     $ahk = Get-AhkExe
-    if (-not $ahk) { Die "AutoHotkey kuruldu ama AutoHotkey64.exe bulunamadi." }
+    if (-not $ahk) { Die "AutoHotkey was installed but AutoHotkey64.exe could not be found." }
 }
 Info "AutoHotkey: $ahk"
 
-# ---------------------------------------------------------------- 2. dosyalar
-Step "Dosyalar kopyalaniyor"
+# ------------------------------------------------------------------ 2. files
+Step "Copying files"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 if ((Resolve-Path $Src).Path -ne (Resolve-Path $Dest).Path) {
     foreach ($f in $Files) { Copy-Item (Join-Path $Src $f) $Dest -Force }
 }
-Info "$($Files.Count) dosya -> $Dest"
+Info "$($Files.Count) files -> $Dest"
 
-# ---------------------------------------------------------------- 3. venv
+# ------------------------------------------------------------------ 3. venv
 $venv = Join-Path $Dest 'venv'
 $venvPy = Join-Path $venv 'Scripts\python.exe'
 $venvPyw = Join-Path $venv 'Scripts\pythonw.exe'
 
-Step "Python ortami hazirlaniyor (birkac dakika surebilir)"
+Step "Preparing the Python environment (this can take a few minutes)"
 if (-not (Test-Path $venvPy)) {
     Invoke-Native $python '-m' 'venv' $venv
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $venvPy)) { Die "venv olusturulamadi." }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $venvPy)) { Die "Could not create the venv." }
 }
 Invoke-Native $venvPy '-m' 'pip' 'install' '--upgrade' 'pip' '--quiet'
 Invoke-Native $venvPy '-m' 'pip' 'install' '--upgrade' 'faster-whisper' 'sounddevice'
-if ($LASTEXITCODE -ne 0) { Die "faster-whisper / sounddevice kurulamadi. Internet baglantisini kontrol edin." }
-Info "faster-whisper + sounddevice hazir"
+if ($LASTEXITCODE -ne 0) { Die "Could not install faster-whisper / sounddevice. Check your internet connection." }
+Info "faster-whisper + sounddevice ready"
 
-# ---------------------------------------------------------------- 4. mikrofon
-Step "Mikrofon secimi"
+# ------------------------------------------------------------------ 4. microphone
+Step "Microphone"
 $raw = Invoke-Native $venvPy (Join-Path $Dest 'dictate-record.py') '--list'
 $mics = @()
 foreach ($line in $raw) {
@@ -204,14 +203,14 @@ foreach ($line in $raw) {
     if ($parts.Count -ge 2) { $mics += [pscustomobject]@{ Index = $parts[0]; Name = $parts[1] } }
 }
 if ($mics.Count -eq 0) {
-    Warn "Giris cihazi listelenemedi, Windows varsayilan mikrofonu kullanilacak."
+    Warn "No input devices listed, the Windows default microphone will be used."
     $micValue = ''
 } else {
-    Write-Host "     0) Windows varsayilan mikrofonu (onerilen)"
+    Write-Host "     0) Windows default microphone (recommended)"
     for ($i = 0; $i -lt $mics.Count; $i++) {
         Write-Host ("    {0,2}) {1}" -f ($i + 1), $mics[$i].Name)
     }
-    $pick = Read-Host "    Secim (Enter = 0)"
+    $pick = Read-Host "    Choice (Enter = 0)"
     if ([string]::IsNullOrWhiteSpace($pick) -or "$pick".Trim() -eq '0') {
         $micValue = ''
     } else {
@@ -219,18 +218,18 @@ if ($mics.Count -eq 0) {
         if ([int]::TryParse("$pick".Trim(), [ref]$n) -and $n -ge 1 -and $n -le $mics.Count) {
             $micValue = $mics[$n - 1].Name
         } else {
-            Warn "Gecersiz secim, varsayilan mikrofon kullanilacak."
+            Warn "Not a valid choice, using the default microphone."
             $micValue = ''
         }
     }
 }
 
-# ---------------------------------------------------------------- 5. model
-Step "Model secimi"
-Write-Host "     1) small     - en hizli, dogruluk orta       (~0.5 GB)"
-Write-Host "     2) medium    - onerilen denge                (~1.5 GB)"
-Write-Host "     3) large-v3  - en dogru, CPU'da cok yavas    (~3 GB)"
-$pick = Read-Host "    Secim (Enter = 2)"
+# ------------------------------------------------------------------ 5. model
+Step "Model"
+Write-Host "     1) small     - fastest, moderate accuracy    (~0.5 GB)"
+Write-Host "     2) medium    - recommended balance           (~1.5 GB)"
+Write-Host "     3) large-v3  - most accurate, slow on CPU    (~3 GB)"
+$pick = Read-Host "    Choice (Enter = 2)"
 switch ("$pick".Trim()) {
     '1' { $model = 'small' }
     '3' { $model = 'large-v3' }
@@ -238,35 +237,35 @@ switch ("$pick".Trim()) {
 }
 Info "Model: $model"
 
-Step "GPU denetleniyor"
+Step "Checking for a GPU"
 $compute = 'cpu'
 $gpuCount = Invoke-Native $venvPy '-c' 'import ctranslate2; print(ctranslate2.get_cuda_device_count())' 2>$null
 if ($LASTEXITCODE -eq 0 -and "$gpuCount".Trim() -ne '' -and "$gpuCount".Trim() -ne '0') {
-    Info "CUDA cihazi gorundu, gercekten calisiyor mu diye kucuk bir model deneniyor..."
-    # get_cuda_device_count() sadece sürücüyü görür; cuBLAS/cuDNN eksikse model
-    # yüklemesi patlar. GPU'yu varsaymak yerine burada gerçekten deniyoruz.
+    Info "A CUDA device is visible, loading a tiny model to see whether it really works..."
+    # get_cuda_device_count() only sees the driver. Without cuBLAS/cuDNN the model
+    # load blows up, so test it here rather than assuming the GPU is usable.
     Invoke-Native $venvPy '-c' "from faster_whisper import WhisperModel; WhisperModel('tiny', device='cuda', compute_type='float16')" 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $compute = 'cuda:float16'
-        Info "GPU kullanilacak (cuda/float16)"
+        Info "Using the GPU (cuda/float16)"
     } else {
-        Warn "GPU var ama cuBLAS/cuDNN eksik gorunuyor; CPU kullanilacak."
+        Warn "A GPU is present but cuBLAS/cuDNN look missing, falling back to CPU."
     }
 } else {
-    Info "GPU yok, CPU kullanilacak (cpu/int8)"
+    Info "No GPU, using the CPU (cpu/int8)"
 }
 
-# ---------------------------------------------------------------- 6. config
-Step "config.ini yaziliyor"
+# ------------------------------------------------------------------ 6. config
+Step "Writing config.ini"
 $cfg = @"
-; Talkey ayarlari. Degistirtalkeyn sonra:
-;   - [whisper] veya [daemon] degistiyse: tepsi menusu > "Daemon'i yeniden baslat"
-;   - [hotkeys], [lang] veya [audio] degistiyse: tepsi menusu > Cikis, sonra Talkey'yi tekrar baslat
+; Talkey settings. After editing:
+;   - changed [whisper] or [daemon]: tray menu > "Restart daemon"
+;   - changed [hotkeys], [lang] or [audio]: tray menu > Exit, then start Talkey again
 
 [audio]
-; Bos = Windows varsayilan mikrofonu. Cihaz adinin bir parcasi da yeterli.
+; Empty = the Windows default microphone. Part of the device name is enough.
 device = $micValue
-; Tusa tekrar basmayi unutursaniz kayit bu kadar saniye sonra kendi durur.
+; If you forget to press the key again, recording stops by itself after this many seconds.
 max_seconds = 600
 
 [whisper]
@@ -286,41 +285,41 @@ secondary = F9
 [daemon]
 host = 127.0.0.1
 port = 47353
-; Model bu kadar saniye kullanilmazsa RAM'den dusurulur.
+; The model is dropped from RAM after this many idle seconds.
 idle_unload = 600
 startup_timeout = 300
 "@
 [IO.File]::WriteAllText((Join-Path $Dest 'config.ini'), $cfg, (New-Object System.Text.UTF8Encoding($false)))
 Info "$Dest\config.ini"
 
-# ---------------------------------------------------------------- 7. model indir
-Step "Model indiriliyor ve deneniyor (ilk seferde uzun surer)"
+# ------------------------------------------------------------------ 7. model download
+Step "Downloading and testing the model (long the first time)"
 Push-Location $Dest
 Invoke-Native $venvPy '-c' "import talkey_cfg; from faster_whisper import WhisperModel; cfg = talkey_cfg.load(); d, c = talkey_cfg.resolve_compute(cfg.get('whisper', 'compute')); WhisperModel(cfg.get('whisper', 'model'), device=d, compute_type=c); print('model ok')"
 $modelOk = ($LASTEXITCODE -eq 0)
 Pop-Location
-if (-not $modelOk) { Die "Model yuklenemedi. Internet baglantisini kontrol edip tekrar deneyin." }
+if (-not $modelOk) { Die "The model could not be loaded. Check your internet connection and try again." }
 
-# ---------------------------------------------------------------- 8. başlangıç
-Step "Baslangica ekleniyor"
+# ------------------------------------------------------------------ 8. startup
+Step "Adding startup shortcuts"
 $startup = [Environment]::GetFolderPath('Startup')
 New-Shortcut (Join-Path $startup 'Talkey.lnk') $ahk ('"{0}"' -f (Join-Path $Dest 'dictate.ahk')) $Dest
 New-Shortcut (Join-Path $startup 'Talkey Daemon.lnk') $venvPyw ('"{0}"' -f (Join-Path $Dest 'dictate-daemon.py')) $Dest
 Info "$startup\Talkey.lnk"
 Info "$startup\Talkey Daemon.lnk"
 
-# ---------------------------------------------------------------- 9. çalıştır
-Step "Baslatiliyor"
+# ------------------------------------------------------------------ 9. launch
+Step "Starting"
 Invoke-Native 'powershell' '-NoProfile' '-ExecutionPolicy' 'Bypass' '-File' (Join-Path $Dest 'restart-daemon.ps1')
 Start-Process -FilePath $ahk -ArgumentList ('"{0}"' -f (Join-Path $Dest 'dictate.ahk')) -WorkingDirectory $Dest
 
 Write-Host ""
-Write-Host "  Kurulum tamam." -ForegroundColor Green
+Write-Host "  All set." -ForegroundColor Green
 Write-Host ""
-Write-Host "  F8 bas -> konus -> F8 bas   ->  Turkce metin panoya girer, Ctrl+V ile yapistir"
-Write-Host "  F9 ayni sey, Ingilizce icin"
+Write-Host "  Press F8, speak, press F8 again. The text lands on your clipboard, paste with Ctrl+V."
+Write-Host "  F9 does the same in English."
 Write-Host ""
-Write-Host "  Ayarlar : $Dest\config.ini"
-Write-Host "  Kaldirma: $Dest\uninstall.ps1"
+Write-Host "  Settings  : $Dest\config.ini"
+Write-Host "  Uninstall : $Dest\uninstall.ps1"
 Write-Host ""
-Read-Host "  Kapatmak icin Enter"
+Read-Host "  Press Enter to close"
