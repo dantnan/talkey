@@ -14,10 +14,10 @@ $startup = [Environment]::GetFolderPath('Startup')
 Write-Host ""
 Write-Host "==> Stopping running processes" -ForegroundColor Cyan
 Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe' OR Name = 'python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*dictate-daemon.py*' -or $_.CommandLine -like '*dictate-record.py*' } |
+    Where-Object { $_.CommandLine -like '*talkey-daemon.py*' -or $_.CommandLine -like '*talkey-record.py*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process -Filter "Name = 'AutoHotkey64.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*dictate.ahk*' } |
+    Where-Object { $_.CommandLine -like '*talkey.ahk*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 Write-Host "==> Removing startup shortcuts" -ForegroundColor Cyan

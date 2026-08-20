@@ -22,16 +22,10 @@ $env:PYTHONIOENCODING = 'utf-8'
 $Src = $PSScriptRoot
 if (-not $Src) { $Src = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $Dest = Join-Path $env:LOCALAPPDATA 'Talkey'
-$Files = @(
-    'dictate.ahk',
-    'dictate-daemon.py',
-    'dictate-client.py',
-    'dictate-record.py',
-    'talkey_cfg.py',
-    'restart-daemon.ps1',
-    'uninstall.ps1',
-    'README.md'
-)
+$Repo = Split-Path -Parent $Src
+# Cross-platform pieces live in shared/, the Windows-only ones next to this script.
+$SharedFiles = @('talkey_cfg.py', 'talkey-daemon.py', 'talkey-client.py', 'talkey-record.py')
+$WindowsFiles = @('talkey.ahk', 'restart-daemon.ps1', 'uninstall.ps1')
 
 function Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
 function Info($msg) { Write-Host "    $msg" -ForegroundColor DarkGray }
@@ -147,8 +141,12 @@ Write-Host "  Talkey - push-to-talk dictation (F8 / F9)" -ForegroundColor White
 Write-Host "  Install folder: $Dest" -ForegroundColor DarkGray
 
 Get-ChildItem $Src -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
+Get-ChildItem (Join-Path $Repo 'shared') -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
 
-foreach ($f in $Files) {
+foreach ($f in $SharedFiles) {
+    if (-not (Test-Path (Join-Path $Repo "shared\$f"))) { Die "Missing file in the package: shared\$f" }
+}
+foreach ($f in $WindowsFiles) {
     if (-not (Test-Path (Join-Path $Src $f))) { Die "Missing file in the package: $f" }
 }
 
@@ -174,10 +172,11 @@ Info "AutoHotkey: $ahk"
 # ------------------------------------------------------------------ 2. files
 Step "Copying files"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-if ((Resolve-Path $Src).Path -ne (Resolve-Path $Dest).Path) {
-    foreach ($f in $Files) { Copy-Item (Join-Path $Src $f) $Dest -Force }
-}
-Info "$($Files.Count) files -> $Dest"
+foreach ($f in $SharedFiles) { Copy-Item (Join-Path $Repo "shared\$f") $Dest -Force }
+foreach ($f in $WindowsFiles) { Copy-Item (Join-Path $Src $f) $Dest -Force }
+$readme = Join-Path $Repo 'README.md'
+if (Test-Path $readme) { Copy-Item $readme $Dest -Force }
+Info "$($SharedFiles.Count + $WindowsFiles.Count) files -> $Dest"
 
 # ------------------------------------------------------------------ 3. venv
 $venv = Join-Path $Dest 'venv'
@@ -194,9 +193,14 @@ Invoke-Native $venvPy '-m' 'pip' 'install' '--upgrade' 'faster-whisper' 'soundde
 if ($LASTEXITCODE -ne 0) { Die "Could not install faster-whisper / sounddevice. Check your internet connection." }
 Info "faster-whisper + sounddevice ready"
 
+$cfgPath = Join-Path $Dest 'config.ini'
+if (Test-Path $cfgPath) {
+    Step "Settings"
+    Info "config.ini already exists, keeping it"
+} else {
 # ------------------------------------------------------------------ 4. microphone
 Step "Microphone"
-$raw = Invoke-Native $venvPy (Join-Path $Dest 'dictate-record.py') '--list'
+$raw = Invoke-Native $venvPy (Join-Path $Dest 'talkey-record.py') '--list'
 $mics = @()
 foreach ($line in $raw) {
     $parts = "$line".Split("`t")
@@ -289,8 +293,9 @@ port = 47353
 idle_unload = 600
 startup_timeout = 300
 "@
-[IO.File]::WriteAllText((Join-Path $Dest 'config.ini'), $cfg, (New-Object System.Text.UTF8Encoding($false)))
-Info "$Dest\config.ini"
+[IO.File]::WriteAllText($cfgPath, $cfg, (New-Object System.Text.UTF8Encoding($false)))
+Info $cfgPath
+}
 
 # ------------------------------------------------------------------ 7. model download
 Step "Downloading and testing the model (long the first time)"
@@ -303,15 +308,15 @@ if (-not $modelOk) { Die "The model could not be loaded. Check your internet con
 # ------------------------------------------------------------------ 8. startup
 Step "Adding startup shortcuts"
 $startup = [Environment]::GetFolderPath('Startup')
-New-Shortcut (Join-Path $startup 'Talkey.lnk') $ahk ('"{0}"' -f (Join-Path $Dest 'dictate.ahk')) $Dest
-New-Shortcut (Join-Path $startup 'Talkey Daemon.lnk') $venvPyw ('"{0}"' -f (Join-Path $Dest 'dictate-daemon.py')) $Dest
+New-Shortcut (Join-Path $startup 'Talkey.lnk') $ahk ('"{0}"' -f (Join-Path $Dest 'talkey.ahk')) $Dest
+New-Shortcut (Join-Path $startup 'Talkey Daemon.lnk') $venvPyw ('"{0}"' -f (Join-Path $Dest 'talkey-daemon.py')) $Dest
 Info "$startup\Talkey.lnk"
 Info "$startup\Talkey Daemon.lnk"
 
 # ------------------------------------------------------------------ 9. launch
 Step "Starting"
 Invoke-Native 'powershell' '-NoProfile' '-ExecutionPolicy' 'Bypass' '-File' (Join-Path $Dest 'restart-daemon.ps1')
-Start-Process -FilePath $ahk -ArgumentList ('"{0}"' -f (Join-Path $Dest 'dictate.ahk')) -WorkingDirectory $Dest
+Start-Process -FilePath $ahk -ArgumentList ('"{0}"' -f (Join-Path $Dest 'talkey.ahk')) -WorkingDirectory $Dest
 
 Write-Host ""
 Write-Host "  All set." -ForegroundColor Green
