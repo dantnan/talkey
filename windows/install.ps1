@@ -176,6 +176,13 @@ foreach ($f in $SharedFiles) { Copy-Item (Join-Path $Repo "shared\$f") $Dest -Fo
 foreach ($f in $WindowsFiles) { Copy-Item (Join-Path $Src $f) $Dest -Force }
 $readme = Join-Path $Repo 'README.md'
 if (Test-Path $readme) { Copy-Item $readme $Dest -Force }
+
+# v1.0.0 shipped these under their old names; drop them so an upgraded install
+# does not keep dead copies alongside the current ones.
+foreach ($old in @('dictate.ahk', 'dictate-daemon.py', 'dictate-client.py', 'dictate-record.py', 'dikte_cfg.py')) {
+    $p = Join-Path $Dest $old
+    if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+}
 Info "$($SharedFiles.Count + $WindowsFiles.Count) files -> $Dest"
 
 # ------------------------------------------------------------------ 3. venv
