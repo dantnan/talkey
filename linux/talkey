@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Talkey toggle: press once to start recording, press again to transcribe.
+#
+#   talkey            record in the primary language from config.ini
+#   talkey <lang>     record in <lang> (this is how the second hotkey works)
+#
+# The text goes to the CLIPBOARD only. Paste it yourself.
+# Bind this script to a key in your desktop's keyboard settings.
+set -uo pipefail
+
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CFG="$HERE/config.ini"
+PY="$HERE/venv/bin/python"
+WORK="${XDG_RUNTIME_DIR:-/tmp}/talkey"
+mkdir -p "$WORK"
+
+WAV="$WORK/rec.wav"
+STOPF="$WORK/rec.stop"
+READYF="$WORK/rec.ready"
+OUTF="$WORK/out.txt"
+PIDF="$WORK/rec.pid"
+LANGF="$WORK/rec.lang"
+
+# Read one key out of the ini without pulling in a parser.
+ini() {
+    sed -n "/^\[$1\]/,/^\[/p" "$CFG" 2>/dev/null |
+        sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" | head -1
+}
+
+notify() { notify-send -t "${2:-3000}" -a Talkey "Talkey" "$1" 2>/dev/null || true; }
+
+# wl-copy under Wayland, xclip or xsel under X11.
+copy_to_clipboard() {
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null; then
+        printf '%s' "$1" | wl-copy
+    elif command -v xclip >/dev/null; then
+        printf '%s' "$1" | xclip -selection clipboard
+    elif command -v xsel >/dev/null; then
+        printf '%s' "$1" | xsel --clipboard --input
+    else
+        notify "No clipboard tool found. Install wl-clipboard or xclip." 8000
+        return 1
+    fi
+}
+
+MODEL="$(ini whisper model)"; MODEL="${MODEL:-medium}"
+PRIMARY="$(ini lang primary)"; PRIMARY="${PRIMARY:-tr}"
+
+# ---- STOP branch: a recording is already running ----
+if [[ -f "$PIDF" ]]; then
+    rec_pid="$(cat "$PIDF" 2>/dev/null)"
+    rm -f "$PIDF"
+    lang="$(cat "$LANGF" 2>/dev/null)"; lang="${lang:-$PRIMARY}"
+
+    : > "$STOPF"                       # sentinel: the recorder closes the WAV cleanly
+    for _ in $(seq 1 100); do
+        kill -0 "$rec_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+
+    # 44 bytes of header plus ~100 ms of 16 kHz mono s16 audio.
+    if [[ ! -s "$WAV" ]] || (( $(stat -c%s "$WAV") < 3300 )); then
+        notify "empty recording"
+        exit 0
+    fi
+
+    notify "transcribing..." 120000
+    "$PY" "$HERE/talkey-client.py" "$lang" "$MODEL" "$WAV" "$OUTF"
+    code=$?
+    case $code in
+        0) ;;
+        3) notify "Could not start the daemon. See $HERE/daemon.log" 8000; exit 1 ;;
+        *) notify "Transcription failed (exit $code). See $HERE/client.log" 8000; exit 1 ;;
+    esac
+
+    text="$(cat "$OUTF" 2>/dev/null)"
+    if [[ -z "${text//[[:space:]]/}" ]]; then
+        notify "nothing recognised"
+        exit 0
+    fi
+    copy_to_clipboard "$text" || exit 1
+    notify "Copied: ${text:0:70}" 4000
+    exit 0
+fi
+
+# ---- START branch ----
+lang="${1:-$PRIMARY}"
+rm -f "$STOPF" "$READYF" "$OUTF" "$WAV"
+printf '%s' "$lang" > "$LANGF"
+
+"$PY" "$HERE/talkey-record.py" "$WAV" "$STOPF" "$READYF" &
+rec_pid=$!
+echo "$rec_pid" > "$PIDF"
+
+# Wait for the microphone to actually open, so the notification is not a lie
+# and the first word does not get clipped.
+for _ in $(seq 1 120); do
+    [[ -f "$READYF" ]] && break
+    if ! kill -0 "$rec_pid" 2>/dev/null; then
+        rm -f "$PIDF"
+        notify "Microphone would not open. See $HERE/record.log" 8000
+        exit 1
+    fi
+    sleep 0.05
+done
+if [[ ! -f "$READYF" ]]; then
+    kill "$rec_pid" 2>/dev/null
+    rm -f "$PIDF"
+    notify "Microphone timed out. See $HERE/record.log" 8000
+    exit 1
+fi
+
+notify "listening [$lang]... (same key to stop)"

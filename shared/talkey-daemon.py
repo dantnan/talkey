@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Warm whisper daemon: load the model once, keep it in RAM, transcribe on request.
 
-Protocol over a loopback TCP socket:
-  request  (client -> daemon): "<lang>\\t<model>\\t<wav_path>\\n"
+Protocol:
+  request  (client -> daemon): "<lang>\t<model>\t<wav_path>\n"
   response (daemon -> client): transcribed text (utf-8), then close.
+
+The endpoint is an AF_UNIX socket on Linux and a loopback TCP port on Windows;
+talkey_cfg hides the difference.
 
 One model is held at a time. Asking for a different size evicts the previous
 one, and the model is dropped entirely after [daemon] idle_unload seconds of
 inactivity - medium/int8 is well over a gigabyte resident, which is a lot to
 hold idle. The next request after an unload pays the reload.
-
-The listening socket is bound without SO_REUSEADDR on purpose: a second copy
-fails to bind and exits quietly instead of two daemons fighting over the port.
 """
-import ctypes
 import gc
 import os
 import socket
@@ -50,38 +49,27 @@ def unload():
     sizes = ",".join(_models)
     _models.clear()
     gc.collect()
-    # gc.collect() alone leaves the freed pages in this process's working set;
-    # ask Windows to hand them back so the idle daemon is actually cheap.
-    try:
-        kernel32 = ctypes.windll.kernel32
-        kernel32.SetProcessWorkingSetSize(
-            kernel32.GetCurrentProcess(), ctypes.c_size_t(-1), ctypes.c_size_t(-1)
-        )
-    except (AttributeError, OSError):
-        pass
+    talkey_cfg.trim_memory()
     say(f"unloaded idle model(s): {sizes}")
 
 
 def main():
     cfg = talkey_cfg.load()
-    host = cfg.get("daemon", "host")
-    port = cfg.getint("daemon", "port")
     idle_unload = cfg.getint("daemon", "idle_unload")
     default_model = cfg.get("whisper", "model")
     beam_size = cfg.getint("whisper", "beam_size")
     device, compute_type = talkey_cfg.resolve_compute(cfg.get("whisper", "compute"))
 
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        srv.bind((host, port))
+        srv, endpoint = talkey_cfg.server_socket(cfg)
     except OSError as exc:
-        say(f"port {port} busy, another daemon is already running ({exc})")
+        say(f"not starting, another daemon seems to be running ({exc})")
         return 0
     srv.listen(4)
     srv.settimeout(_POLL_SEC)
 
     get_model(default_model, device, compute_type)  # preload: first request is instant
-    say(f"ready on {host}:{port} (model={default_model}, idle-unload={idle_unload}s)")
+    say(f"ready on {endpoint} (model={default_model}, idle-unload={idle_unload}s)")
 
     last_used = time.monotonic()
     while True:

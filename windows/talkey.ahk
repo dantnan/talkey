@@ -52,7 +52,7 @@ StartRec(lang) {
     for f in [WAV, STOPF, READYF, OUTF] {
         try FileDelete(f)
     }
-    cmd := '"' PYW '" "' A_ScriptDir '\dictate-record.py" "' WAV '" "' STOPF '" "' READYF '"'
+    cmd := '"' PYW '" "' A_ScriptDir '\talkey-record.py" "' WAV '" "' STOPF '" "' READYF '"'
     try {
         Run(cmd, A_ScriptDir, "Hide", &pid)
     } catch as err {
@@ -101,7 +101,7 @@ StopAndTranscribe() {
     }
 
     Notify("transcribing...", 120000)
-    cmd := '"' PYW '" "' A_ScriptDir '\dictate-client.py" ' recLang ' ' MODEL ' "' WAV '" "' OUTF '"'
+    cmd := '"' PYW '" "' A_ScriptDir '\talkey-client.py" ' recLang ' ' MODEL ' "' WAV '" "' OUTF '"'
     code := RunWait(cmd, A_ScriptDir, "Hide")
 
     if (code = 3) {
