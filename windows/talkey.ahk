@@ -17,6 +17,7 @@ global CFG := A_ScriptDir "\config.ini"
 global PYW := A_ScriptDir "\venv\Scripts\pythonw.exe"
 global MODEL := IniRead(CFG, "whisper", "model", "medium")
 global MUTE_OUTPUT := IniRead(CFG, "audio", "mute_output", "1")
+global DONE_SOUND := IniRead(CFG, "audio", "done_sound", "1")
 global L_PRI := IniRead(CFG, "lang", "primary", "tr")
 global L_SEC := IniRead(CFG, "lang", "secondary", "en")
 global K_PRI := IniRead(CFG, "hotkeys", "primary", "F8")
@@ -63,6 +64,16 @@ MuteOutput() {
     } catch {
         prevMute := ""      ; no default output device, nothing to do
     }
+}
+
+; A short chime once the text is actually on the clipboard, so you do not have
+; to look at the screen to know it is ready. Runs after the speakers are back.
+; "*64" is the system information sound, so it follows the user's sound scheme
+; instead of hardcoding a file that may not exist.
+DoneSound() {
+    if (DONE_SOUND != "1")
+        return
+    try SoundPlay("*64")
 }
 
 RestoreOutput() {
@@ -159,6 +170,7 @@ StopAndTranscribe() {
     A_Clipboard := text
     ClipWait(1)
     lastText := text
+    DoneSound()
     Notify("📋 Copied (Ctrl+V): " SubStr(text, 1, 70), 4000)
     Done()
 }

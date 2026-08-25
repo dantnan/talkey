@@ -75,6 +75,21 @@ mute_output() {
     fi
 }
 
+# A short chime once the text is actually on the clipboard, so you do not have
+# to look at the screen to know it is ready. Runs after the speakers are back.
+done_sound() {
+    [[ "$DONE_SOUND" == 1 ]] || return 0
+    local f=/usr/share/sounds/freedesktop/stereo/complete.oga
+    if command -v canberra-gtk-play >/dev/null; then
+        canberra-gtk-play -i complete >/dev/null 2>&1 &
+    elif [[ -f "$f" ]] && command -v paplay >/dev/null; then
+        paplay "$f" >/dev/null 2>&1 &
+    elif [[ -f "$f" ]] && command -v pw-play >/dev/null; then
+        pw-play "$f" >/dev/null 2>&1 &
+    fi
+    return 0
+}
+
 restore_output() {
     [[ -f "$MUTEF" ]] || return 0
     [[ "$(cat "$MUTEF" 2>/dev/null)" == 0 ]] && set_output_mute 0
@@ -85,6 +100,7 @@ restore_output() {
 MODEL="$(ini whisper model)"; MODEL="${MODEL:-medium}"
 PRIMARY="$(ini lang primary)"; PRIMARY="${PRIMARY:-tr}"
 MUTE_OUTPUT="$(ini audio mute_output)"; MUTE_OUTPUT="${MUTE_OUTPUT:-1}"
+DONE_SOUND="$(ini audio done_sound)"; DONE_SOUND="${DONE_SOUND:-1}"
 
 # ---- STOP branch: a recording is already running ----
 if [[ -f "$PIDF" ]]; then
@@ -120,6 +136,7 @@ if [[ -f "$PIDF" ]]; then
         exit 0
     fi
     copy_to_clipboard "$text" || exit 1
+    done_sound
     notify "Copied: ${text:0:70}" 4000
     exit 0
 fi
