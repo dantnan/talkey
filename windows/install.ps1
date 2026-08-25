@@ -278,6 +278,9 @@ $cfg = @"
 device = $micValue
 ; If you forget to press the key again, recording stops by itself after this many seconds.
 max_seconds = 600
+; Silence the speakers while recording so what is playing does not bleed into
+; the microphone. Whatever the mute state was before is restored afterwards.
+mute_output = 1
 
 [whisper]
 model = $model

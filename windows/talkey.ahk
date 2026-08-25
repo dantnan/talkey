@@ -16,6 +16,7 @@ global CFG := A_ScriptDir "\config.ini"
 ; from config.ini below is plain ASCII.
 global PYW := A_ScriptDir "\venv\Scripts\pythonw.exe"
 global MODEL := IniRead(CFG, "whisper", "model", "medium")
+global MUTE_OUTPUT := IniRead(CFG, "audio", "mute_output", "1")
 global L_PRI := IniRead(CFG, "lang", "primary", "tr")
 global L_SEC := IniRead(CFG, "lang", "secondary", "en")
 global K_PRI := IniRead(CFG, "hotkeys", "primary", "F8")
@@ -33,6 +34,7 @@ global busy := false
 global recPid := 0
 global recLang := L_PRI
 global lastText := ""
+global prevMute := ""   ; system mute state from before we silenced it
 
 ; ---------- notifications ----------
 ; A tooltip rather than TrayTip: it shows up instantly and does not depend on
@@ -44,6 +46,34 @@ ClearTip() {
 Notify(msg, ms := 2500) {
     ToolTip(msg)
     SetTimer(ClearTip, -ms)
+}
+
+; ---------- speaker muting ----------
+; Silence the speakers while recording so whatever is playing does not bleed
+; into the microphone. The previous state is remembered and put back, so a
+; deliberately muted machine stays muted afterwards.
+MuteOutput() {
+    global prevMute
+    if (MUTE_OUTPUT != "1")
+        return
+    try {
+        prevMute := SoundGetMute()
+        if !prevMute
+            SoundSetMute(true)
+    } catch {
+        prevMute := ""      ; no default output device, nothing to do
+    }
+}
+
+RestoreOutput() {
+    global prevMute
+    if (prevMute = "")
+        return
+    try {
+        if !prevMute
+            SoundSetMute(false)
+    }
+    prevMute := ""
 }
 
 ; ---------- recording ----------
@@ -66,6 +96,7 @@ StartRec(lang) {
     deadline := A_TickCount + 6000
     while (!FileExist(READYF) && A_TickCount < deadline) {
         if !ProcessExist(recPid) {
+            RestoreOutput()
             Notify("Microphone would not open. See " A_ScriptDir "\record.log", 8000)
             recPid := 0
             return
@@ -73,12 +104,14 @@ StartRec(lang) {
         Sleep(50)
     }
     if !FileExist(READYF) {
+        RestoreOutput()
         Notify("Microphone timed out. See " A_ScriptDir "\record.log", 8000)
         try ProcessClose(recPid)
         recPid := 0
         return
     }
     recording := true
+    MuteOutput()
     A_IconTip := "Talkey - recording [" lang "]"
     Notify("🎤 listening [" lang "]... (same key to stop)", 3000)
 }
@@ -92,6 +125,7 @@ StopAndTranscribe() {
     if recPid
         ProcessWaitClose(recPid, 10)
     recPid := 0
+    RestoreOutput()   ; nothing is being recorded any more
 
     ; 44 bytes of header plus ~100 ms of 16 kHz mono s16 audio.
     if (!FileExist(WAV) || FileGetSize(WAV) < 3300) {
@@ -172,7 +206,7 @@ tray.Add("Copy last text", CopyLast)
 tray.Add("Restart daemon", RestartDaemon)
 tray.Add("Open install folder", OpenFolder)
 tray.Add()
-tray.Add("Exit", (*) => ExitApp())
+tray.Add("Exit", (*) => (RestoreOutput(), ExitApp()))
 
 ; ---------- start ----------
 if !FileExist(PYW) {
