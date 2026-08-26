@@ -20,6 +20,7 @@ READYF="$WORK/rec.ready"
 OUTF="$WORK/out.txt"
 PIDF="$WORK/rec.pid"
 LANGF="$WORK/rec.lang"
+MUTEF="$WORK/rec.premute"
 
 # Read one key out of the ini without pulling in a parser.
 ini() {
@@ -43,8 +44,63 @@ copy_to_clipboard() {
     fi
 }
 
+# Silence the speakers while recording so whatever is playing does not bleed
+# into the microphone. The previous state is remembered and put back, so a
+# deliberately muted machine stays muted afterwards.
+output_is_muted() {
+    if command -v wpctl >/dev/null; then
+        wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | grep -q MUTED
+    elif command -v pactl >/dev/null; then
+        [[ "$(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null)" == *yes* ]]
+    else
+        return 1
+    fi
+}
+
+set_output_mute() {   # $1 = 1 to mute, 0 to unmute
+    if command -v wpctl >/dev/null; then
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ "$1" >/dev/null 2>&1
+    elif command -v pactl >/dev/null; then
+        pactl set-sink-mute @DEFAULT_SINK@ "$1" >/dev/null 2>&1
+    fi
+}
+
+mute_output() {
+    [[ "$MUTE_OUTPUT" == 1 ]] || return 0
+    if output_is_muted; then
+        printf '1' > "$MUTEF"        # already muted, leave it alone on the way out
+    else
+        printf '0' > "$MUTEF"
+        set_output_mute 1
+    fi
+}
+
+# A short chime once the text is actually on the clipboard, so you do not have
+# to look at the screen to know it is ready. Runs after the speakers are back.
+done_sound() {
+    [[ "$DONE_SOUND" == 1 ]] || return 0
+    local f=/usr/share/sounds/freedesktop/stereo/complete.oga
+    if command -v canberra-gtk-play >/dev/null; then
+        canberra-gtk-play -i complete >/dev/null 2>&1 &
+    elif [[ -f "$f" ]] && command -v paplay >/dev/null; then
+        paplay "$f" >/dev/null 2>&1 &
+    elif [[ -f "$f" ]] && command -v pw-play >/dev/null; then
+        pw-play "$f" >/dev/null 2>&1 &
+    fi
+    return 0
+}
+
+restore_output() {
+    [[ -f "$MUTEF" ]] || return 0
+    [[ "$(cat "$MUTEF" 2>/dev/null)" == 0 ]] && set_output_mute 0
+    rm -f "$MUTEF"
+    return 0
+}
+
 MODEL="$(ini whisper model)"; MODEL="${MODEL:-medium}"
 PRIMARY="$(ini lang primary)"; PRIMARY="${PRIMARY:-tr}"
+MUTE_OUTPUT="$(ini audio mute_output)"; MUTE_OUTPUT="${MUTE_OUTPUT:-1}"
+DONE_SOUND="$(ini audio done_sound)"; DONE_SOUND="${DONE_SOUND:-1}"
 
 # ---- STOP branch: a recording is already running ----
 if [[ -f "$PIDF" ]]; then
@@ -57,6 +113,7 @@ if [[ -f "$PIDF" ]]; then
         kill -0 "$rec_pid" 2>/dev/null || break
         sleep 0.1
     done
+    restore_output          # nothing is being recorded any more
 
     # 44 bytes of header plus ~100 ms of 16 kHz mono s16 audio.
     if [[ ! -s "$WAV" ]] || (( $(stat -c%s "$WAV") < 3300 )); then
@@ -79,12 +136,14 @@ if [[ -f "$PIDF" ]]; then
         exit 0
     fi
     copy_to_clipboard "$text" || exit 1
+    done_sound
     notify "Copied: ${text:0:70}" 4000
     exit 0
 fi
 
 # ---- START branch ----
 lang="${1:-$PRIMARY}"
+restore_output
 rm -f "$STOPF" "$READYF" "$OUTF" "$WAV"
 printf '%s' "$lang" > "$LANGF"
 
@@ -98,6 +157,7 @@ for _ in $(seq 1 120); do
     [[ -f "$READYF" ]] && break
     if ! kill -0 "$rec_pid" 2>/dev/null; then
         rm -f "$PIDF"
+        restore_output
         notify "Microphone would not open. See $HERE/record.log" 8000
         exit 1
     fi
@@ -106,8 +166,10 @@ done
 if [[ ! -f "$READYF" ]]; then
     kill "$rec_pid" 2>/dev/null
     rm -f "$PIDF"
+    restore_output
     notify "Microphone timed out. See $HERE/record.log" 8000
     exit 1
 fi
 
+mute_output
 notify "listening [$lang]... (same key to stop)"

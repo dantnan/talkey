@@ -127,6 +127,12 @@ else
 device =
 ; If you forget to press the key again, recording stops by itself after this many seconds.
 max_seconds = 600
+; Silence the speakers while recording so what is playing does not bleed into
+; the microphone. Whatever the mute state was before is restored afterwards.
+mute_output = 1
+; Play a short chime once the text is on the clipboard, so you do not have to
+; look at the screen to know it is ready.
+done_sound = 1
 
 [whisper]
 model = $MODEL

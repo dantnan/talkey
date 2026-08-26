@@ -96,6 +96,8 @@ that synthetic keystrokes are unreliable or unavailable under Wayland.
 |---|---|
 | `[audio] device` | Microphone. Empty = your system default. Part of the device name also works. |
 | `[audio] max_seconds` | If you forget to stop, recording ends by itself after this long. |
+| `[audio] mute_output` | `1` silences the speakers while recording so playing audio does not bleed into the mic. The previous mute state is restored afterwards. `0` turns it off. |
+| `[audio] done_sound` | `1` plays a short chime when the text hits the clipboard, so you do not have to look at the screen. `0` turns it off. |
 | `[whisper] model` | `small`, `medium`, `large-v3`. Bigger is more accurate and slower. |
 | `[whisper] compute` | `auto`, `cpu`, `cuda:float16`. The installer sets this for your machine. |
 | `[lang] primary` / `secondary` | The two keys' languages (`tr`, `en`, `de`, `fr`, …). |
