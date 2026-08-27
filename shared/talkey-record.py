@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Sentinel-driven recorder: 16 kHz mono s16 WAV until a stop file appears.
 
-    dictate-record.py --list
-    dictate-record.py <wav> <stopfile> <readyfile>
+    talkey-record.py --list
+    talkey-record.py <wav> <stopfile> <readyfile>
 
 Stopping by sentinel file rather than by killing the process is deliberate: the
 WAV header stores the data length, and a hard kill leaves it unpatched, so the
@@ -18,9 +18,22 @@ import sys
 import time
 import wave
 
-import sounddevice as sd
-
 import talkey_cfg
+
+# PortAudio is loaded at import time and throws when the machine has no usable
+# audio stack at all. This process runs windowless, so an uncaught import error
+# would vanish with no log and the hotkey would only say the microphone would
+# not open. Catch it here and leave a readable reason behind instead.
+try:
+    import sounddevice as sd
+except Exception as _exc:  # noqa: BLE001 - any import failure must be reported
+    talkey_cfg.log(
+        "record",
+        f"FATAL could not load the audio library: {type(_exc).__name__}: {_exc}\n"
+        "The system reports no usable audio input stack. Check that a microphone "
+        "is connected and enabled in Sound settings.",
+    )
+    sys.exit(1)
 
 RATE = 16000
 CHANNELS = 1
@@ -112,4 +125,13 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        # Windowless again: the log is the only place this can surface.
+        import traceback
+
+        talkey_cfg.log("record", "ERROR\n" + traceback.format_exc())
+        sys.exit(1)
