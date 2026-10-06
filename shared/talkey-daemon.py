@@ -107,6 +107,7 @@ def main():
         finally:
             conn.close()
             last_used = time.monotonic()
+            whisper = segments = None  # drop this request's model ref, or unload() can't free it
 
 
 if __name__ == "__main__":
