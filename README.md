@@ -204,7 +204,7 @@ there is crowded, and the problem that motivated Talkey (synthetic keystrokes
 being broken under Wayland) does not exist on a Mac. If you want something like
 this there, [Handy](https://github.com/cjpais/Handy) does it well.
 
-Built by [Adnan Bekir](https://antnan.com).
+Built by [Antnan](https://antnan.com).
 
 ## License
 
